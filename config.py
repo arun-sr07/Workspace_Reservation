@@ -1,6 +1,6 @@
 DB_CONFIG = {
     "host": "localhost",
     "user": "root",
-    "password": "yourpassword",
+    "password": "root",
     "database": "workspace_reservation"
 }

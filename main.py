@@ -1,125 +1,327 @@
-import mysql.connector
-from datetime import datetime
+from datetime import date
 from tabulate import tabulate
-
-# ----------------------
-# MySQL Connection
-# ----------------------
-db = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="Arunsr2003@.",
-    database="workspace_reservation"
+from db import get_connection
+import pymysql
+import stdiomask
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich import box
+from colorama import Fore, Style
+console = Console()
+# ---- Services ----
+from services.workspace_service import (
+    list_workspaces,
+    list_available_seats,
+    reserve_seat,
+    cancel_reservation,
+    get_user_reservationss
 )
-cursor = db.cursor(dictionary=True)
+from services.meeting_service import (
+    list_meeting_rooms,
+    reserve_room,
+    cancel_reservation as cancel_meeting_reservation,
+    get_user_reservation as get_meeting_reservations
+)
+from services.training_service import (
+    list_training_rooms,
+    reserve_training_room,
+    cancel_training_reservation,
+    get_user_training_reservations
+)
+reserved_seats_map = {
+    "workspace": set(),
+    "meeting": set(),
+    "training": set()
+}
 
-# ----------------------
-# Core Functions
-# ----------------------
+def show_seat_layout(room_type: str, rows: int, cols: int):
+    """Display seat layout with reserved seats in color"""
+    reserved = reserved_seats_map[room_type]
 
-def list_workspaces():
-    cursor.execute("SELECT * FROM workspaces")
-    workspaces = cursor.fetchall()
-    print(tabulate(workspaces, headers="keys", tablefmt="grid"))
+    print(Fore.CYAN + f"\n--- {room_type.capitalize()} Seat Layout ---" + Style.RESET_ALL)
 
-def list_available_seats(workspace_id, reservation_date, time_slot):
-    query = """
-        SELECT s.id, s.seat_number
-        FROM seats s
-        WHERE s.workspace_id=%s
-        AND s.id NOT IN (
-            SELECT seat_id FROM reservations 
-            WHERE reservation_date=%s AND time_slot=%s
-        )
-    """
-    cursor.execute(query, (workspace_id, reservation_date, time_slot))
-    seats = cursor.fetchall()
-    if not seats:
-        print("No seats available.")
-    else:
-        print(tabulate(seats, headers="keys", tablefmt="grid"))
-    return seats
+    seat_number = 1
+    for r in range(rows):
+        row_str = ""
+        for c in range(cols):
+            if seat_number in reserved:
+                row_str += Fore.RED + "[X]" + Style.RESET_ALL + " "
+            else:
+                row_str += Fore.GREEN + f"[{seat_number}]" + Style.RESET_ALL + " "
+            seat_number += 1
+        print(row_str)
 
-def reserve_seat(user_id, seat_id, reservation_date, time_slot):
-    # Check if seat already reserved
-    cursor.execute("""
-        SELECT * FROM reservations 
-        WHERE seat_id=%s AND reservation_date=%s AND time_slot=%s
-    """, (seat_id, reservation_date, time_slot))
-    if cursor.fetchone():
-        print("Seat already reserved for this slot.")
+    print(Fore.YELLOW + "\nLegend: [X] Reserved | [n] Available" + Style.RESET_ALL)
+# ---------- Helper Printers ----------
+def print_table(data, headers=None):
+    if not data:
+        console.print("[yellow]⚠️ No records found.[/yellow]")
         return
-    cursor.execute("""
-        INSERT INTO reservations (user_id, seat_id, reservation_date, time_slot)
-        VALUES (%s, %s, %s, %s)
-    """, (user_id, seat_id, reservation_date, time_slot))
-    db.commit()
-    print("Seat reserved successfully!")
 
-def cancel_reservation(user_id, reservation_id):
-    cursor.execute("DELETE FROM reservations WHERE id=%s AND user_id=%s", (reservation_id, user_id))
-    if cursor.rowcount == 0:
-        print("❌ No reservation found for that ID.")
+    if isinstance(data[0], dict):
+        if headers == "keys" or headers is None:
+            headers = list(data[0].keys())
+        table = Table(title="Results", box=box.ROUNDED, show_lines=True, style="cyan")
+        for h in headers:
+            table.add_column(h, style="bold green")
+        for row in data:
+            table.add_row(*[str(row.get(h, "")) for h in headers])
+        console.print(table)
     else:
-        db.commit()
-        print("✅ Reservation cancelled successfully!")
+        # fallback to tabulate
+        print("\n" + tabulate(data, headers=headers, tablefmt="fancy_grid"))
+
+def get_user_by_id(user_id):
+    conn = get_connection()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+    cursor.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return user
 
 
-def view_user_reservations(user_id):
-    cursor.execute("""
-        SELECT r.id as reservation_id, s.seat_number, w.name as workspace, r.reservation_date, r.time_slot
-        FROM reservations r
-        JOIN seats s ON r.seat_id = s.id
-        JOIN workspaces w ON s.workspace_id = w.id
-        WHERE r.user_id=%s
-    """, (user_id,))
-    reservations = cursor.fetchall()
-    if not reservations:
-        print("No reservations found.")
-    else:
-        print(tabulate(reservations, headers="keys", tablefmt="grid"))
-
-# ----------------------
-# Console Menu
-# ----------------------
-def main():
-    user_id = int(input("Enter your User ID: "))
-
+# ---------- Workspace ----------
+def workspace_menu(user_id: int):
     while True:
-        print("\n--- Workspace Seat Reservation ---")
-        print("1. List workspaces")
-        print("2. List available seats")
-        print("3. Reserve a seat")
-        print("4. Cancel a reservation")
-        print("5. View my reservations")
-        print("6. Exit")
+        console.print(Panel.fit(" [bold cyan]Workspace Seat Reservation[/bold cyan]", style="magenta", box=box.ROUNDED))
+        console.print("1.  List Workspaces")
+        console.print("2. 🔙 Back to Main Menu")
 
-        choice = input("Enter your choice: ")
+        choice = input(" Enter choice: ")
 
         if choice == '1':
-            list_workspaces()
+            workspaces = list_workspaces()
+            print_table(workspaces, headers="keys")
+
+            workspace_id = int(input(" Enter Workspace ID (or 0 to go back): "))
+            if workspace_id == 0:
+                continue
+
+            reservation_date = input(" Enter Date (YYYY-MM-DD): ")
+            seats = list_available_seats(workspace_id, reservation_date)
+            print_table(seats, headers="keys")
+
+            while True:
+                console.print(Panel.fit("🎯 [bold cyan]Seat Actions[/bold cyan]", style="blue", box=box.SQUARE))
+                console.print("1.  Reserve a Seat")
+                console.print("2.  Cancel Reservation")
+                console.print("3.  View My Reservations")
+                console.print("4.  Back to Workspace Menu")
+                console.print("5. View Seat Layout")
+
+                sub_choice = input(" Enter choice: ")
+
+                if sub_choice == '1':
+                    seat_id = int(input("💺 Enter Seat ID: "))
+                    result = reserve_seat(user_id, seat_id, reservation_date, workspace_id)
+                    if isinstance(result, dict) and "error" in result:
+                        console.print(f"[red] Reservation Failed: {result['error']}[/red]")
+                    else:
+                        reserved_seats_map["workspace"].add(seat_id)  # update ASCII layout
+                        console.print("[green] Reservation Successful ![/green]")
+                        show_seat_layout("workspace", 3, 4)  # show updated layout
+
+                elif sub_choice == '2':
+                    reservation_id = int(input(" Enter Reservation ID to cancel: "))
+                    result = cancel_reservation(reservation_id, user_id)
+                    if isinstance(result, dict) and "error" in result:
+                        console.print(f"[red] Cancel Failed: {result['error']}[/red]")
+                    else:
+                        seat_id = int(input("Enter Seat ID to free: "))
+                        if seat_id in reserved_seats_map["workspace"]:
+                            reserved_seats_map["workspace"].remove(seat_id)  # free seat
+                        print("✅ Reservation Cancelled Successfully!")
+                        show_seat_layout("workspace", 3, 4)
+
+                elif sub_choice == '3':
+                    reservations = get_user_reservationss(user_id)
+                    print_table(reservations, headers="keys")
+
+                elif sub_choice == '4':
+                    break
+                elif sub_choice == '5':
+                    show_seat_layout("workspace", 3, 4)
+                else:
+                    console.print("[yellow] Invalid choice, try again.[/yellow]")
+
         elif choice == '2':
-            workspace_id = int(input("Enter Workspace ID: "))
-            date = input("Enter reservation date (YYYY-MM-DD): ")
-            slot = input("Enter time slot (Morning/Afternoon/Evening): ")
-            list_available_seats(workspace_id, date, slot)
-        elif choice == '3':
-            workspace_id = int(input("Enter Workspace ID: "))
-            date = input("Enter reservation date (YYYY-MM-DD): ")
-            slot = input("Enter time slot (Morning/Afternoon/Evening): ")
-            available_seats = list_available_seats(workspace_id, date, slot)
-            if available_seats:
-                seat_id = int(input("Enter Seat ID to reserve: "))
-                reserve_seat(user_id, seat_id, date, slot)
-        elif choice == '4':
-            reservation_id = int(input("Enter Reservation ID to cancel: "))
-            cancel_reservation(user_id, reservation_id)
-        elif choice == '5':
-            view_user_reservations(user_id)
-        elif choice == '6':
             break
         else:
-            print("Invalid choice. Try again.")
+            console.print("[yellow] Invalid choice, try again.[/yellow]")
+
+
+# ---------- Meeting ----------
+def meeting_menu(user_id: int):
+    while True:
+        console.print(Panel.fit(" [bold cyan]Meeting Room Reservation[/bold cyan]", style="magenta", box=box.ROUNDED))
+        console.print("1.  List Meeting Rooms")
+        console.print("2.  Back to Main Menu")
+
+        choice = input(" Enter choice: ")
+
+        if choice == '1':
+            rooms = list_meeting_rooms()
+            print_table(rooms, headers="keys")
+
+            room_id = int(input(" Enter Room ID (or 0 to go back): "))
+            if room_id == 0:
+                continue
+
+            while True:
+                console.print(Panel.fit(f"🎯 [bold cyan]Actions for Meeting Room {room_id}[/bold cyan]", style="blue", box=box.SQUARE))
+                console.print("1.  Reserve Meeting Room")
+                console.print("2.  Cancel Reservation")
+                console.print("3.  View My Reservations")
+                console.print("4.  Back to Meeting Rooms")
+
+                sub_choice = input(" Enter choice: ")
+
+                if sub_choice == '1':
+                    reservation_date = input(" Enter Date (YYYY-MM-DD): ")
+                    start_hour = input(" Start Hour (0-23): ")
+                    end_hour = input(" End Hour (0-23): ")
+                    start_time = f"{start_hour}:00:00"
+                    end_time = f"{end_hour}:00:00"
+
+                    result = reserve_room(user_id, room_id, reservation_date, start_time, end_time)
+                    if isinstance(result, dict) and "error" in result:
+                        console.print(f"[red] Reservation Failed: {result['error']}[/red]")
+                    else:
+                        console.print("[green] Reservation Successful![/green]")
+
+                elif sub_choice == '2':
+                    reservation_id = int(input("🆔 Enter Reservation ID to cancel: "))
+                    result = cancel_meeting_reservation(reservation_id, user_id)
+                    if isinstance(result, dict) and "error" in result:
+                        console.print(f"[red] Cancel Failed: {result['error']}[/red]")
+                    else:
+                        console.print("[green] Reservation Cancelled![/green]")
+
+                elif sub_choice == '3':
+                    reservations = get_meeting_reservations(user_id)
+                    print_table(reservations, headers="keys")
+
+                elif sub_choice == '4':
+                    break
+                else:
+                    console.print("[yellow] Invalid choice, try again.[/yellow]")
+
+        elif choice == '2':
+            break
+        else:
+            console.print("[yellow] Invalid choice, try again.[/yellow]")
+
+
+# ---------- Training ----------
+def training_menu(user_id: int):
+    while True:
+        console.print(Panel.fit(" [bold cyan]Training Room Reservation[/bold cyan]", style="magenta", box=box.ROUNDED))
+        console.print("1.  List Training Rooms")
+        console.print("2.  Back to Main Menu")
+
+        choice = input(" Enter choice: ")
+
+        if choice == '1':
+            rooms = list_training_rooms()
+            print_table(rooms, headers="keys")
+
+            room_id = int(input(" Enter Training Room ID (or 0 to go back): "))
+            if room_id == 0:
+                continue
+
+            while True:
+                console.print(Panel.fit(f" [bold cyan]Actions for Training Room {room_id}[/bold cyan]", style="blue", box=box.SQUARE))
+                console.print("1.  Reserve Training Room")
+                console.print("2.  Cancel Reservation")
+                console.print("3.  View My Reservations")
+                console.print("4.  Back to Training Rooms")
+
+                sub_choice = input(" Enter choice: ")
+
+                if sub_choice == '1':
+                    start_date = input(" Enter Start Date (YYYY-MM-DD): ")
+                    end_date = input(" Enter End Date (YYYY-MM-DD): ")
+                    batch = input(" Enter Batch : ") or None
+
+                    result = reserve_training_room(user_id, room_id, start_date, end_date, batch)
+                    if isinstance(result, dict) and "error" in result:
+                        console.print(f"[red] Reservation Failed: {result['error']}[/red]")
+                    else:
+                        console.print("[green] Training Room Reserved Successfully![/green]")
+
+                elif sub_choice == '2':
+                    reservation_id = int(input(" Enter Reservation ID to cancel: "))
+                    result = cancel_training_reservation(reservation_id)
+                    if isinstance(result, dict) and "error" in result:
+                        console.print(f"[red] Cancel Failed: {result['error']}[/red]")
+                    else:
+                        console.print("[green] Reservation Cancelled![/green]")
+
+                elif sub_choice == '3':
+                    reservations = get_user_training_reservations(user_id)
+                    if reservations:
+                        print_table(reservations, headers="keys")
+                    else:
+                        console.print("[yellow] No training reservations found.[/yellow]")
+
+                elif sub_choice == '4':
+                    break
+                else:
+                    console.print("[yellow] Invalid choice, try again.[/yellow]")
+
+        elif choice == '2':
+            break
+        else:
+            console.print("[yellow] Invalid choice, try again.[/yellow]")
+
+
+# ---------- Main ----------
+def main():
+    console.print(Panel.fit("🏢 [bold cyan]Workspace Reservation System[/bold cyan] 🏢", style="bold magenta", box=box.DOUBLE_EDGE))
+
+    user_id = input(" Enter your Employee ID: ")
+    password = stdiomask.getpass(" Enter Password: ", mask="*")
+    user = get_user_by_id(user_id)
+
+    if not user:
+        console.print("[red] Invalid User ID.[/red]")
+        return
+    if user["password"] != password:
+        console.print("[red] Invalid Password.[/red]")
+        return None
+
+    console.print(f"[bold green] Welcome {user['username']}![/bold green] Role: [cyan]{user['role']}[/cyan]")
+    while True:
+        print(Fore.CYAN + "\n=== Main Menu ===" + Style.RESET_ALL)
+        print(Fore.YELLOW + "1." + Style.RESET_ALL + "  Workspace Reservations")
+        print(Fore.YELLOW + "2." + Style.RESET_ALL + "  Meeting Room Reservations")
+
+        # Show Training Room option only for management
+        if user["role"].lower() == "management":
+            print(Fore.YELLOW + "3." + Style.RESET_ALL + "  Training Room Reservations")
+            print(Fore.RED + "4." + Style.RESET_ALL + "  Exit")
+            choice = input("Enter choice: ")
+        else:
+            print(Fore.RED + "3." + Style.RESET_ALL + "  Exit")
+            choice = input("Enter choice: ")
+
+        if choice == '1':
+            workspace_menu(user_id)
+
+        elif choice == '2':
+            meeting_menu(user_id)
+
+        elif choice == '3' and user["role"].lower() == "management":
+            training_menu(user_id)
+
+        elif (choice == '3' and user["role"].lower() != "management") or \
+             (choice == '4' and user["role"].lower() == "management"):
+            print(" Exiting. Goodbye!")
+            break
+        else:
+            print("Invalid choice, try again.")
 
 if __name__ == "__main__":
     main()
