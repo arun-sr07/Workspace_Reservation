@@ -2,6 +2,12 @@
 
 from datetime import date
 from models import reservations, resources,offices, floors
+from ml.recommendation_service import get_recommended_seats
+
+def list_recommended_seats(user_id, resource_id, reservation_date):
+    recommendations = get_recommended_seats(user_id, resource_id, reservation_date)
+    return recommendations
+
 
 def list_workspaces():
     """

@@ -121,3 +121,33 @@ VALUES
 
 -- Sophia reserves Thoraipakkam Training Room
 (7, 8, '2025-09-15', '2025-09-20', 'Python');
+
+INSERT INTO reservations (user_id, resource_id, seat_id, reservation_date, time_slot)
+VALUES
+-- Alice reserves two seats
+(1, 1, 1, '2025-09-01', 'Morning'),
+(1, 1, 2, '2025-09-02', 'Morning'),
+
+-- Bob reserves the same seat on consecutive days (good training data for "reserved_again")
+(2, 1, 3, '2025-09-03', 'Afternoon'),
+(2, 1, 3, '2025-09-04', 'Afternoon'),
+
+-- Charlie reserves another seat once
+(3, 1, 4, '2025-09-05', 'Morning'),
+
+-- David (Manager) reserves a seat — good to have manager data too
+(4, 1, 5, '2025-09-05', 'Afternoon'),
+
+-- Eve (Manager) reserves another seat
+(5, 1, 6, '2025-09-06', 'Morning'),
+
+-- Sophia (Management) reserves once — helps training model for management users
+(6, 1, 7, '2025-09-07', 'Morning'),
+
+-- Arun (You) reserves multiple times to have pattern for recommendations
+(7, 1, 8, '2025-09-08', 'Morning'),
+(7, 1, 8, '2025-09-09', 'Morning'),
+(7, 1, 8, '2025-09-10', 'Morning'),
+
+-- HR reserves once
+(8, 1, 9, '2025-09-08', 'Afternoon');

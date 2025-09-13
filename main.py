@@ -15,7 +15,8 @@ from services.workspace_service import (
     list_available_seats,
     reserve_seat,
     cancel_reservation,
-    get_user_reservationss
+    get_user_reservationss,
+    list_recommended_seats
 )
 from services.meeting_service import (
     list_meeting_rooms,
@@ -100,6 +101,18 @@ def workspace_menu(user_id: int):
                 continue
 
             reservation_date = input(" Enter Date (YYYY-MM-DD): ")
+            try:
+                recommended = list_recommended_seats(user_id, workspace_id, reservation_date)
+                if recommended:
+                    console.print("\n[bold magenta]🔮 Recommended Seats for You:[/bold magenta]")
+                    for seat, prob in recommended:
+                        console.print(f" Seat {seat} → [green]{prob*100:.0f}% match[/green]")
+                else:
+                    console.print("[yellow]⚠️ No recommendations available yet. Try reserving a few times first![/yellow]")
+            except Exception as e:
+                console.print(f"[red]Recommendation Error: {e}[/red]")
+
+            
             seats = list_available_seats(workspace_id, reservation_date)
             print_table(seats, headers="keys")
 

@@ -96,3 +96,42 @@ CREATE TABLE training_reservations (
     FOREIGN KEY (resource_id) REFERENCES resources(resource_id)
 );
 
+-- =======================================
+-- Create ML Training View
+-- =======================================
+DROP VIEW IF EXISTS user_seat_training_data;
+
+CREATE VIEW user_seat_training_data AS
+SELECT
+    r.user_id,
+    r.seat_id,
+    r.resource_id,
+    DAYOFWEEK(r.reservation_date) AS day_of_week,
+    
+    -- Days since last reservation for same seat by same user
+    DATEDIFF(
+        r.reservation_date,
+        (
+            SELECT MAX(r2.reservation_date)
+            FROM reservations r2
+            WHERE r2.user_id = r.user_id
+              AND r2.seat_id = r.seat_id
+              AND r2.reservation_date < r.reservation_date
+        )
+    ) AS last_reserved_gap,
+    
+    -- Target: did they reserve the same seat again later?
+    CASE
+        WHEN EXISTS (
+            SELECT 1
+            FROM reservations r3
+            WHERE r3.user_id = r.user_id
+              AND r3.seat_id = r.seat_id
+              AND r3.reservation_date > r.reservation_date
+        )
+        THEN 1 ELSE 0
+    END AS reserved_again
+
+FROM reservations r
+WHERE r.seat_id IS NOT NULL;
+
