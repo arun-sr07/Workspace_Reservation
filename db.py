@@ -6,8 +6,8 @@ import pymysql
 # ==========================
 DB_CONFIG = {
     "host": "localhost",
-    "user": "root",        # change to your MySQL username
-    "password": "root", # change to your MySQL password
+    "user": "root",        
+    "password": "root",
     "database": "workspace_reservation",
     "cursorclass": pymysql.cursors.DictCursor
 }
