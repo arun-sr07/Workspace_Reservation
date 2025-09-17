@@ -15,7 +15,19 @@ def list_workspaces():
     """
     return resources.get_resources_by_type("Workspace")
 
+def list_all_seats(resource_id: int, reservation_date: str):
+    """
+    Return ALL seats for a workspace, with a flag whether each seat is reserved.
+    """
+    all_seats = resources.get_seats_by_resource(resource_id)
+    reserved_seats = reservations.get_reservations_for_resource(resource_id, reservation_date)
 
+    reserved_ids = {r["seat_id"] for r in reserved_seats if r.get("seat_id")}
+
+    for seat in all_seats:
+        seat["is_reserved"] = seat["seat_id"] in reserved_ids
+
+    return all_seats
 def list_available_seats(resource_id: int, reservation_date: date):
     """
     List available seats for a workspace on a specific date.
