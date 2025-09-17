@@ -193,7 +193,7 @@ def open_workspace_menu(user):
             cancel_window.destroy()
             refresh_seats()
 
-    # 🔥 NEW: View all reservations (scrollable)
+    
     def open_all_reservations_window():
         all_res = get_user_reservationss(user['user_id'])
         if not all_res:
@@ -204,7 +204,7 @@ def open_workspace_menu(user):
         all_win.title("My Reservations (All Dates)")
         all_win.geometry("600x350")
 
-        columns = ("Id",  "Seat_id", "Date")
+        columns = ("reservation_id",  "seat_id", "date")
         tree = ttk.Treeview(all_win, columns=columns, show="headings", height=10)
         tree.heading("reservation_id", text="Reservation ID")
         
@@ -243,11 +243,20 @@ def open_workspace_menu(user):
         try:
             recs = list_recommended_seats(user['user_id'], workspace_id, reservation_date)
             if recs:
-                recommendation_label.config(
-                    text="Recommended: " + ", ".join([f"Seat {s} ({p*100:.0f}%)" for s, p in recs])
-                )
+                # Supports (seat_id, probability, count) or (seat_id, probability) if model used
+                formatted = []
+                for r in recs:
+                    seat = r[0]
+                    prob = r[1]
+                    count = r[2] if len(r) > 2 else None
+                    if count:
+                        formatted.append(f"Seat {seat} because you reserved it {count} times")
+                    else:
+                        formatted.append(f"Seat {seat} ({prob*100:.0f}%)")
+                recommendation_label.config(text="Recommended: " + "; ".join(formatted))
             else:
                 recommendation_label.config(text="No recommendations available.")
+
         except Exception as e:
             recommendation_label.config(text=f"Error: {e}")
 
@@ -401,7 +410,7 @@ def open_training_room_menu(user):
     tk.Label(tr_win, text="Training Rooms", font=("Arial", 14, "bold")).pack(pady=5)
 
     # --- Table of training rooms ---
-    columns = ("Id", "Name", "Capacity", "Floor", "Type")
+    columns = ("Id", "Name", "Capacity", "Floor")
     tree = ttk.Treeview(tr_win, columns=columns, show="headings")
     for col in columns:
         tree.heading(col, text=col)
@@ -416,8 +425,8 @@ def open_training_room_menu(user):
                 room["resource_id"],
                 room["name"],
                 room["capacity"],
-                room.get("floor", ""),
-                room.get("type", "")
+                room["floor_id"]
+                
             ))
 
     load_training_rooms()
@@ -458,8 +467,7 @@ def open_training_room_menu(user):
         cancel_win = tk.Toplevel(root)
         cancel_win.title("Cancel My Training Reservations")
 
-        # This should return a list of dicts with keys:
-        # training_reservation_id, resource_id, start_date, end_date, batch
+        
         reservations = get_user_training_reservations(user_id)
 
         if not reservations:
@@ -502,7 +510,7 @@ def open_training_room_menu(user):
         view_win.title("My Training Reservations")
         view_win.geometry("600x300")
 
-        columns = ("Id", "Room", "Start", "End", "Batch")
+        columns = ("Id", "Start", "End", "Batch")
         tree_view = ttk.Treeview(view_win, columns=columns, show="headings")
         for col in columns:
             tree_view.heading(col, text=col)
@@ -512,7 +520,7 @@ def open_training_room_menu(user):
         for res in reservations:
             tree_view.insert("", "end", values=(
                 res["training_reservation_id"],
-                res.get("room_name", ""),
+                
                 res["start_date"],
                 res["end_date"],
                 res.get("batch", "")
